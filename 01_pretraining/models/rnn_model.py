@@ -54,9 +54,7 @@ class RNNModel(nn.Module):
         self.fc_out = nn.Linear(hidden_units, vocab_size)
 
         # Human-friendly model name
-        self.friendly_name = (
-            f"{self.rnn_type.upper()}RNN_hiddenunits={hidden_units}_layers={num_layers}"
-        )
+        self.friendly_name = f"RNN_type={self.rnn_type.upper()}_hiddenunits={hidden_units}_layers={num_layers}"
 
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:  # (B, T) → (B, T, V)
         x = self.embed(input_ids)  # (B, T, hidden)

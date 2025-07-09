@@ -1,6 +1,7 @@
 # %%
 import torch
 import os
+import pandas as pd
 
 os.makedirs("outputs", exist_ok=True)
 
@@ -277,6 +278,13 @@ def train_and_evaluate(
 
     print(f"\nTraining complete for {model.friendly_name}")
 
+    res = {
+        "train_losses": train_losses,
+        "val_losses": val_losses,
+        "final_sample": final_sample,
+        "model_name": model.friendly_name,
+    }
+
     # Explicitly free GPU/Apple-Silicon memory before the next run
     del model
     if device == "cuda":
@@ -284,27 +292,59 @@ def train_and_evaluate(
     elif device == "mps":
         torch.mps.empty_cache()
 
-    return {"losses": [train_losses, val_losses], "final_sample": final_sample}
+    return res
 
 
 from models import FCModel, RNNModel, TransformerModel
 
 models = [
-    FCModel(vocab_size=len(tokenizer), hidden_units=256, num_layers=2),
+    # ----------------- Fully Connected Models -----------------
+    FCModel(vocab_size=len(tokenizer), hidden_units=128, num_layers=2),  # Modest FC
+    FCModel(vocab_size=len(tokenizer), hidden_units=512, num_layers=6),  # Large FC
+    # ----------------- Transformer Models ---------------------
     TransformerModel(
         vocab_size=len(tokenizer),
         hidden_units=128,
-        num_layers=2,
+        num_layers=1,
         num_heads=2,
-    ),
-    RNNModel(vocab_size=len(tokenizer), hidden_units=128, num_layers=2, rnn_type="rnn"),
-    # RNNModel(vocab_size=len(tokenizer), hidden_units=256, num_layers=2, rnn_type="gru"),
-    # RNNModel(
-    #     vocab_size=len(tokenizer), hidden_units=256, num_layers=2, rnn_type="lstm"
-    # ),
+        dropout=0.1,
+    ),  # Modest Transformer
+    TransformerModel(
+        vocab_size=len(tokenizer),
+        hidden_units=512,
+        num_layers=8,
+        num_heads=8,
+        max_seq_len=block_size,
+        dropout=0.1,
+    ),  # Large Transformer
+    # ----------------- RNN Models -----------------------------
+    RNNModel(
+        vocab_size=len(tokenizer),
+        hidden_units=128,
+        num_layers=2,
+        rnn_type="rnn",
+    ),  # Modest Simple RNN
+    RNNModel(
+        vocab_size=len(tokenizer),
+        hidden_units=512,
+        num_layers=4,
+        rnn_type="lstm",
+        dropout=0.2,
+    ),  # Large LSTM
+    RNNModel(
+        vocab_size=len(tokenizer),
+        hidden_units=512,
+        num_layers=4,
+        rnn_type="gru",
+        dropout=0.2,
+    ),  # Large GRU
 ]
 
-res = {}
+res = []
 for m in models:
     compiled_m = torch.compile(m)
-    res[m.friendly_name] = train_and_evaluate(compiled_m, epochs=2, learning_rate=0.002)
+    res_i = train_and_evaluate(compiled_m, epochs=5, learning_rate=0.001)
+    res.append(res_i)
+
+filename = os.path.join("outputs", "run_res.csv")
+pd.DataFrame(res).to_csv(filename, index=False)
