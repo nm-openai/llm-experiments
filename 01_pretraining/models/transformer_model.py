@@ -2,12 +2,9 @@
 
 Moved from ``01_pretraining/main.py``.
 """
-from __future__ import annotations
 
 import torch
 import torch.nn as nn
-
-__all__ = ["TransformerModel"]
 
 
 class TransformerModel(nn.Module):
@@ -56,6 +53,9 @@ class TransformerModel(nn.Module):
         # Final LM head
         self.fc_out = nn.Linear(hidden_units, vocab_size)
 
+        # Human-friendly model name
+        self.friendly_name = f"Transformer_hiddenunits={hidden_units}_layers={num_layers}_heads={num_heads}"
+
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:  # (B, T) → (B, T, V)
         seq_len = input_ids.size(1)
         if seq_len > self.pos_embed.size(1):
@@ -66,9 +66,3 @@ class TransformerModel(nn.Module):
         x = self.transformer(x)
         logits = self.fc_out(x)
         return logits
-
-    def __str__(self) -> str:
-        return (
-            f"tf_{self.hidden_units}hu_"
-            f"{self.num_layers}layers_{self.num_heads}heads"
-        )

@@ -12,18 +12,15 @@ from transformers import (
 )
 
 # 1.  Load the corpus  -------------------------------------------------------
-# Options: "wikitext", "wikitext-2-raw-v1", "wikitext-103-v1", "wikitext-103-raw-v1"
-dataset = load_dataset("karpathy/tiny_shakespeare")  # -> dict with train/val/test
-# If you have bandwidth limits, add streaming=True (lazy loading).
+dataset = load_dataset("karpathy/tiny_shakespeare")
 
 with open(os.path.join("outputs", "train_text.txt"), "w", encoding="utf-8") as f:
     for line in dataset["train"]["text"]:
         f.write(line + "\n")
 
+
 # %%
 # Train some models!~
-
-
 def save_model(model, filepath):
     """
     Save a PyTorch model's state_dict to the specified filepath, creating directories if needed.
@@ -54,6 +51,7 @@ tokenized = dataset.map(
     tokenize,
     batched=True,  # process ~1k rows per call (fast)
     remove_columns=["text"],  # drop the raw string to save RAM
+    num_proc=16,
     desc="Tokenizing",
 )
 
@@ -184,7 +182,7 @@ def train_and_evaluate(
         torch.cuda.empty_cache()
 
     print(f"\n{'=' * 80}")
-    print(f"Training {str(model)} ({model.__class__.__name__}) for {epochs} epoch(s)")
+    print(f"Training {model.friendly_name} for {epochs} epoch(s)")
     print(f"{'=' * 80}")
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     criterion = nn.CrossEntropyLoss()
@@ -271,11 +269,13 @@ def train_and_evaluate(
     print("Validation loss per epoch:", [f"{l:.4f}" for l in val_losses])
 
     # Save checkpoint **before** freeing resources
-    ckpt_path = os.path.join("outputs", "models", f"{str(model)}.pt")
+    ckpt_path = os.path.join(
+        "outputs", "model_checkpoints", f"{model.friendly_name}.pt"
+    )
     save_model(model, ckpt_path)
     print(f"Saved model checkpoint to {ckpt_path}")
 
-    print(f"\nTraining complete for {str(model)}")
+    print(f"\nTraining complete for {model.friendly_name}")
 
     # Explicitly free GPU/Apple-Silicon memory before the next run
     del model
@@ -306,6 +306,5 @@ models = [
 
 res = {}
 for m in models:
-    res[str(m)] = train_and_evaluate(m, epochs=2, learning_rate=0.002)
-
-res
+    compiled_m = torch.compile(m)
+    res[m.friendly_name] = train_and_evaluate(compiled_m, epochs=2, learning_rate=0.002)

@@ -2,12 +2,9 @@
 
 Moved from ``01_pretraining/main.py`` to keep the main script concise.
 """
-from __future__ import annotations
 
 import torch
 import torch.nn as nn
-
-__all__ = ["FCModel"]
 
 
 class FCModel(nn.Module):
@@ -50,6 +47,9 @@ class FCModel(nn.Module):
         self.embed = nn.Embedding(vocab_size, hidden_units)
         self.relu = nn.ReLU()
 
+        # Human-friendly model name
+        self.friendly_name = f"FC_hiddenunits={hidden_units}_layers={num_layers}"
+
         # Build hidden stack (Linear → ReLU repeated)
         hidden_blocks: list[nn.Module] = []
         for _ in range(num_layers - 1):  # last layer handled by fc_out
@@ -71,7 +71,3 @@ class FCModel(nn.Module):
         x = self.hidden_stack(x)  # pass through hidden FC layers
         logits = self.fc_out(x)  # (B, T, vocab)
         return logits
-
-    def __str__(self) -> str:
-        """Human-friendly identifier, e.g. ``fc_512hu_3layers``."""
-        return f"fc_{self.hidden_units}hu_{self.num_layers}layers"

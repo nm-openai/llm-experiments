@@ -2,12 +2,9 @@
 
 Moved from ``01_pretraining/main.py``.
 """
-from __future__ import annotations
 
 import torch
 import torch.nn as nn
-
-__all__ = ["RNNModel"]
 
 
 class RNNModel(nn.Module):
@@ -56,11 +53,13 @@ class RNNModel(nn.Module):
         )
         self.fc_out = nn.Linear(hidden_units, vocab_size)
 
+        # Human-friendly model name
+        self.friendly_name = (
+            f"{self.rnn_type.upper()}RNN_hiddenunits={hidden_units}_layers={num_layers}"
+        )
+
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:  # (B, T) → (B, T, V)
         x = self.embed(input_ids)  # (B, T, hidden)
         rnn_out, _ = self.rnn(x)  # ignore hidden/cell states
         logits = self.fc_out(rnn_out)
         return logits
-
-    def __str__(self) -> str:
-        return f"{self.rnn_type}_{self.hidden_units}hu_{self.num_layers}layers"
