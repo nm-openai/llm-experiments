@@ -49,12 +49,14 @@ from torch.utils.data import DataLoader
 
 lm_datasets.set_format("torch", columns=["input_ids", "attention_mask", "labels"])
 
+batch_size = 16
+
 train_loader = DataLoader(
-    lm_datasets["train"], batch_size=8, shuffle=True, collate_fn=data_collator  # type: ignore
+    lm_datasets["train"], batch_size=batch_size, shuffle=True, collate_fn=data_collator  # type: ignore
 )
 
 valid_loader = DataLoader(
-    lm_datasets["validation"], batch_size=8, shuffle=True, collate_fn=data_collator  # type: ignore
+    lm_datasets["validation"], batch_size=batch_size, shuffle=True, collate_fn=data_collator  # type: ignore
 )
 
 # %%
@@ -134,6 +136,59 @@ class TinyRNNLM(nn.Module):
         return self.lm_head(out)
 
 
+class TinyTransformerLM(nn.Module):
+    """A minimal Transformer encoder language model for small-scale experiments."""
+
+    def __init__(
+        self,
+        vocab_size: int,
+        d_model: int = 128,
+        n_heads: int = 4,
+        num_layers: int = 2,
+        d_ff: int = 256,
+        dropout: float = 0.1,
+        max_seq_len: int = 512,
+    ):
+        super().__init__()
+
+        if d_model % n_heads != 0:
+            raise ValueError("d_model must be divisible by n_heads")
+
+        # 1) Token + positional embeddings
+        self.token_embed = nn.Embedding(vocab_size, d_model)
+        self.pos_embed = nn.Parameter(torch.zeros(1, max_seq_len, d_model))
+        self.dropout = nn.Dropout(dropout)
+
+        # 2) Stacked self-attention blocks
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=n_heads,
+            dim_feedforward=d_ff,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,  # (B, T, C) order to match the rest of the script
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        # 3) Final language-model head (weights tied with token embedding)
+        self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
+        self.lm_head.weight = self.token_embed.weight  # weight tying
+
+    def forward(
+        self, input_ids: torch.LongTensor
+    ) -> torch.Tensor:  # (B, T) → (B, T, V)
+        seq_len = input_ids.size(1)
+        if seq_len > self.pos_embed.size(1):
+            raise ValueError(
+                f"Sequence length {seq_len} exceeds max_seq_len={self.pos_embed.size(1)}"
+            )
+
+        x = self.token_embed(input_ids) + self.pos_embed[:, :seq_len, :]
+        x = self.dropout(x)
+        x = self.transformer(x)
+        return self.lm_head(x)
+
+
 batch = next(iter(train_loader))
 input_ids = batch["input_ids"].to(device)
 
@@ -160,65 +215,95 @@ def generate(model, idx, max_new_tokens):
 import torch.optim as optim
 
 # model = TinyMLPLM(len(tok), d_model=512, d_hidden=256).to(device)
-model = TinyRNNLM(len(tok), d_model=128, d_hidden=256, num_layers=1).to(device)
+# model = TinyRNNLM(len(tok), d_model=128, d_hidden=256, num_layers=1).to(device)
+model = TinyTransformerLM(
+    vocab_size=len(tok),
+    d_model=256,
+    n_heads=8,
+    num_layers=4,
+    max_seq_len=block_size,
+).to(device)
 
-num_epochs = 1
+models = [
+    ("basic mlp", TinyMLPLM(len(tok), d_model=512, d_hidden=256).to(device)),
+    (
+        "basic rnn",
+        TinyRNNLM(len(tok), d_model=128, d_hidden=256, num_layers=1).to(device),
+    ),
+    (
+        "basic transformer",
+        TinyTransformerLM(
+            vocab_size=len(tok),
+            d_model=256,
+            n_heads=8,
+            num_layers=4,
+            max_seq_len=block_size,
+        ).to(device),
+    ),
+]
+
+num_epochs = 2
 learning_rate = 5e-4
 
-generate_and_print_sample(model, tok, device, "the quick brown fox")
+for label, model in models:
+    print(f"---------\nStarting training run for: {label}\n-----------")
+    generate_and_print_sample(model, tok, device, "the quick brown fox")
 
-model.train()
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-loss_fn = nn.CrossEntropyLoss()
+    model.train()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    loss_fn = nn.CrossEntropyLoss()
 
-for epoch in range(num_epochs):
-    for i, batch in enumerate(train_loader):
+    for epoch in range(num_epochs):
+        for i, batch in enumerate(train_loader):
 
-        input_ids = batch["input_ids"].to(device)
-        labels = batch["labels"].to(device)
-
-        # Shift input_ids and labels for next-token prediction
-        input_ids_shifted = input_ids[:, :-1]
-        labels_shifted = labels[:, 1:]
-
-        optimizer.zero_grad()
-        logits = model(input_ids_shifted)
-        loss = loss_fn(logits.view(-1, logits.size(-1)), labels_shifted.reshape(-1))
-        loss.backward()
-        optimizer.step()
-
-        if (i % 100 == 0) & (i > 0):
-            print(f"batch {i} of {len(train_loader)}. loss = {loss.item()}")
-
-    model.eval()
-    with torch.no_grad():
-        total_valid_loss = 0.0
-        total_valid_tokens = 0
-
-        for batch in valid_loader:
             input_ids = batch["input_ids"].to(device)
             labels = batch["labels"].to(device)
 
-            # Forward on full sequence for proper context
-            logits = model(input_ids)  # -> [B, T, V]
+            # Shift input_ids and labels for next-token prediction
+            input_ids_shifted = input_ids[:, :-1]
+            labels_shifted = labels[:, 1:]
 
-            # Shift to create next-token targets
-            shift_logits = logits[:, :-1, :].contiguous()
-            shift_labels = labels[:, 1:].contiguous()
+            optimizer.zero_grad()
+            logits = model(input_ids_shifted)
+            loss = loss_fn(logits.view(-1, logits.size(-1)), labels_shifted.reshape(-1))
+            loss.backward()
+            optimizer.step()
 
-            # Compute mean loss over *non-ignored* tokens
-            loss = loss_fn(
-                shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
-            )
+            if (i % 50 == 0) & (i > 0):
+                print(f"batch {i} of {len(train_loader)}. loss = {loss.item()}")
 
-            # Count valid tokens (non-pad)
-            valid_tokens = (shift_labels != tok.pad_token_id).sum().item()
+            if i == 100:
+                break
 
-            # Weight by valid token count
-            total_valid_loss += loss.item() * valid_tokens
-            total_valid_tokens += valid_tokens
+        model.eval()
+        with torch.no_grad():
+            total_valid_loss = 0.0
+            total_valid_tokens = 0
 
-        avg_valid_loss = total_valid_loss / total_valid_tokens
-        print(f"Epoch {epoch+1} Validation loss: {avg_valid_loss:.4f}")
-    generate_and_print_sample(model, tok, device, "the quick brown fox")
-    model.train()
+            for batch in valid_loader:
+                input_ids = batch["input_ids"].to(device)
+                labels = batch["labels"].to(device)
+
+                # Forward on full sequence for proper context
+                logits = model(input_ids)  # -> [B, T, V]
+
+                # Shift to create next-token targets
+                shift_logits = logits[:, :-1, :].contiguous()
+                shift_labels = labels[:, 1:].contiguous()
+
+                # Compute mean loss over *non-ignored* tokens
+                loss = loss_fn(
+                    shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+                )
+
+                # Count valid tokens (non-pad)
+                valid_tokens = (shift_labels != tok.pad_token_id).sum().item()
+
+                # Weight by valid token count
+                total_valid_loss += loss.item() * valid_tokens
+                total_valid_tokens += valid_tokens
+
+            avg_valid_loss = total_valid_loss / total_valid_tokens
+            print(f"Epoch {epoch+1} Validation loss: {avg_valid_loss:.4f}")
+        generate_and_print_sample(model, tok, device, "the quick brown fox")
+        model.train()
