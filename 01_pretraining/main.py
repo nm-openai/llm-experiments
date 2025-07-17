@@ -19,6 +19,11 @@ with open(os.path.join("outputs", "train_text.txt"), "w", encoding="utf-8") as f
     for line in dataset["train"]["text"]:
         f.write(line + "\n")
 
+# %%
+print(dataset)
+
+# %%
+
 
 # %%
 # Train some models!~
@@ -132,11 +137,14 @@ def generate(
     return tokenizer.decode(input_ids[0].tolist(), skip_special_tokens=True)
 
 
+from typing import Optional
+
+
 def train_and_evaluate(
     model: nn.Module,
     epochs: int = 5,
-    n_train_samples: int = None,
-    n_val_samples: int = None,
+    n_train_samples: Optional[int] = None,
+    n_val_samples: Optional[int] = None,
     learning_rate: float = 1e-3,
 ) -> None:
     """Train and evaluate an arbitrary ``torch.nn.Module``.
@@ -298,10 +306,6 @@ def train_and_evaluate(
 from models import FCModel, RNNModel, TransformerModel
 
 models = [
-    # ----------------- Fully Connected Models -----------------
-    FCModel(vocab_size=len(tokenizer), hidden_units=128, num_layers=2),  # Modest FC
-    FCModel(vocab_size=len(tokenizer), hidden_units=512, num_layers=6),  # Large FC
-    # ----------------- Transformer Models ---------------------
     TransformerModel(
         vocab_size=len(tokenizer),
         hidden_units=128,
@@ -309,35 +313,39 @@ models = [
         num_heads=2,
         dropout=0.1,
     ),  # Modest Transformer
-    TransformerModel(
-        vocab_size=len(tokenizer),
-        hidden_units=512,
-        num_layers=8,
-        num_heads=8,
-        max_seq_len=block_size,
-        dropout=0.1,
-    ),  # Large Transformer
-    # ----------------- RNN Models -----------------------------
-    RNNModel(
-        vocab_size=len(tokenizer),
-        hidden_units=128,
-        num_layers=2,
-        rnn_type="rnn",
-    ),  # Modest Simple RNN
-    RNNModel(
-        vocab_size=len(tokenizer),
-        hidden_units=512,
-        num_layers=4,
-        rnn_type="lstm",
-        dropout=0.2,
-    ),  # Large LSTM
-    RNNModel(
-        vocab_size=len(tokenizer),
-        hidden_units=512,
-        num_layers=4,
-        rnn_type="gru",
-        dropout=0.2,
-    ),  # Large GRU
+    # # ----------------- Fully Connected Models -----------------
+    # FCModel(vocab_size=len(tokenizer), hidden_units=128, num_layers=2),  # Modest FC
+    # FCModel(vocab_size=len(tokenizer), hidden_units=512, num_layers=6),  # Large FC
+    # # ----------------- Transformer Models ---------------------
+    # TransformerModel(
+    #     vocab_size=len(tokenizer),
+    #     hidden_units=512,
+    #     num_layers=8,
+    #     num_heads=8,
+    #     max_seq_len=block_size,
+    #     dropout=0.1,
+    # ),  # Large Transformer
+    # # ----------------- RNN Models -----------------------------
+    # RNNModel(
+    #     vocab_size=len(tokenizer),
+    #     hidden_units=128,
+    #     num_layers=2,
+    #     rnn_type="rnn",
+    # ),  # Modest Simple RNN
+    # RNNModel(
+    #     vocab_size=len(tokenizer),
+    #     hidden_units=512,
+    #     num_layers=4,
+    #     rnn_type="lstm",
+    #     dropout=0.2,
+    # ),  # Large LSTM
+    # RNNModel(
+    #     vocab_size=len(tokenizer),
+    #     hidden_units=512,
+    #     num_layers=4,
+    #     rnn_type="gru",
+    #     dropout=0.2,
+    # ),  # Large GRU
 ]
 
 res = []
